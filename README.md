@@ -1,0 +1,217 @@
+# OpenFrame
+
+OpenFrame is a fair source video review and approval platform for teams that need clear feedback, version control, and client-friendly review links in one place. It supports collaborative review workflows out of the box and can be self-hosted with the Docker setup included in this repository.
+
+Prefer not to self-host? You can try OpenFrame at [open-frame.net](https://open-frame.net) with a 7-day free trial, then continue on the hosted plan starting at $10.
+
+## Product Screenshot
+
+![OpenFrame product screenshot](public/github-readme.jpeg)
+
+## What OpenFrame Covers
+
+OpenFrame is built for video teams that want one system for review, revision, approval, and delivery feedback.
+
+- Timestamped comments directly on the video timeline
+- Voice notes, image attachments, and frame annotations
+- Version history with side-by-side compare
+- Approval requests and sign-off tracking
+- Share links for client review with optional guest commenting
+- Workspaces, projects, member roles, and invitation flows
+- Comment tags, resolved states, and CSV/PDF exports
+- Video-linked assets for supporting media and references
+- Email and Telegram notifications
+- URL-based YouTube video intake plus optional direct uploads (Bunny Stream or self-hosted S3)
+
+## Core Workflow
+
+1. Add a video to a project from a YouTube URL or direct upload flow.
+2. Share a review link with internal collaborators or external stakeholders.
+3. Collect timestamped feedback with text, voice, images, and annotations.
+4. Compare versions, resolve comments, and request approvals.
+5. Export feedback or keep everything tracked inside the project timeline.
+
+## Features
+
+### Review Without Guesswork
+
+- Timestamped comments anchor every note to an exact moment in the cut.
+- Reviewers can leave text, voice notes, image attachments, and drawn annotations.
+- Comment threads support replies, resolution states, and project-specific tags.
+
+### Versioning And Comparison
+
+- Videos support multiple versions inside the same review thread.
+- Teams can switch between versions without losing review context.
+- Compare mode lets reviewers inspect two versions side by side.
+
+### Client And Team Collaboration
+
+- Share links can be configured for view or comment access.
+- Guest review is supported for external stakeholders.
+- Workspaces and projects support member roles, invitations, and scoped access.
+
+### Approval And Reporting
+
+- Approval requests can be sent to specific reviewers.
+- Approval decisions are tracked per request with pending, approved, rejected, and canceled states.
+- Comments can be exported as CSV or PDF for offline review and handoff.
+
+### Assets, Notifications, And Integrations
+
+- Videos can include related assets such as images, supplementary videos, and audio.
+- Notification settings support email and Telegram delivery.
+- Self-hosted setups can run with bundled S3-compatible storage or external object storage.
+- Optional integrations include Stripe billing, Bunny direct uploads, OAuth providers, SMTP, and Telegram notifications.
+
+## Stack
+
+OpenFrame is built with:
+
+- Next.js 16 and React 19
+- Bun
+- TypeScript
+- Prisma
+- PostgreSQL
+- NextAuth.js
+- Tailwind CSS
+- MinIO or other S3-compatible object storage for self-hosted media and direct video uploads
+- Bunny Stream for optional hosted direct video uploads (mutually exclusive with S3 video uploads)
+
+## Self-Hosting
+
+OpenFrame ships with a Docker Compose setup for self-hosting. The default stack brings up:
+
+- OpenFrame on `http://localhost:3000`
+- PostgreSQL for the application database
+- MinIO for S3-compatible object storage
+
+### Quick Start
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Edit `.env.docker`, set strong values for `NEXTAUTH_SECRET`, `POSTGRES_PASSWORD`, and the MinIO credentials, then start the stack:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:3000` after the containers become healthy.
+
+MinIO is bound to `127.0.0.1` by default, so the S3 API and admin console stay local to the host unless you intentionally re-publish those ports.
+
+The Docker template already trusts `localhost:3000` for Auth.js via `AUTH_TRUST_HOST=true`, so the default local Compose flow does not require extra auth host setup.
+
+### First Boot Behavior
+
+- The app waits for PostgreSQL and MinIO before starting.
+- Prisma migrations run automatically on container boot.
+- The MinIO bucket is created automatically when `SELF_HOSTED_AUTO_CREATE_BUCKET=true`.
+
+### Persistence And Upgrades
+
+- PostgreSQL data is stored in the `postgres-data` Docker volume.
+- MinIO objects are stored in the `minio-data` Docker volume.
+- After updating the repo, rebuild and restart with `docker compose up --build`.
+
+### Use The Published Image
+
+If you do not want to build OpenFrame locally, use the published Docker Hub image instead.
+
+Pull a specific version:
+
+```bash
+podman pull docker.io/yusufipk/openframe:v0.1.0
+```
+
+You can also inspect these tags on Docker Hub:
+
+- `yusufipk/openframe:v0.1.0` for a fixed release
+- `yusufipk/openframe:latest` for the newest build from the `main` branch
+- `yusufipk/openframe:sha-<commit>` for a commit-pinned image
+
+Use `latest` if you want the newest mainline build. For real deployments, prefer a fixed version tag such as `v0.1.0` instead of `latest`.
+
+To use the published image in Compose, open `docker-compose.yml` and change only the `app` service from a local `build:` block to an `image:` reference such as `docker.io/yusufipk/openframe:v0.1.0`. Keep the rest of the service and the `postgres` and `minio` services unchanged.
+
+Replace this:
+
+```yaml
+app:
+  build:
+    context: .
+    dockerfile: Dockerfile
+```
+
+With this:
+
+```yaml
+app:
+  image: docker.io/yusufipk/openframe:v0.1.0
+```
+
+If the `build:` block is still present, `podman compose up -d` will try to build locally from the current directory instead of pulling the published image.
+
+Then start the stack normally:
+
+```bash
+podman compose up -d
+```
+
+Open `http://localhost:3000/login` after the containers become healthy.
+
+To verify a published image manually, point your Compose app service at a fixed image tag such as `docker.io/yusufipk/openframe:v0.1.0`, start the stack with `podman compose up -d`, and open `http://localhost:3000/login` after the containers become healthy.
+
+### Optional Integrations And Feature Flags
+
+The Docker example disables hosted-only features by default:
+
+```bash
+OPENFRAME_ENABLE_STRIPE=false
+OPENFRAME_ENABLE_BUNNY_UPLOADS=false
+OPENFRAME_REQUIRE_INVITE_CODE=false
+```
+
+Behavior when disabled:
+
+- `OPENFRAME_ENABLE_STRIPE=false` disables Stripe checkout and customer portal flows and removes billing-based workspace restrictions.
+- `OPENFRAME_ENABLE_BUNNY_UPLOADS=false` hides Bunny direct-upload entry points. URL-based providers such as YouTube remain available.
+- `OPENFRAME_ENABLE_S3_VIDEO_UPLOADS=true` (with `R2_*` configured) enables presigned uploads to your own S3-compatible storage. Set `OPENFRAME_ENABLE_BUNNY_UPLOADS=false` — only one direct-upload backend can be active. The bucket must allow CORS `PUT` from your app origin (for example `http://localhost:3000` in dev and your production URL). For Docker + MinIO, keep `R2_ENDPOINT=http://minio:9000` (app-internal) and set `R2_PRESIGN_ENDPOINT` to the browser-reachable MinIO origin (for example `http://localhost:9000` locally, or `https://minio.example.com` when MinIO is behind a reverse proxy). Use the origin only — no path suffix. The app's Content-Security-Policy is generated from runtime env at request time, so published Docker images pick up custom `R2_PRESIGN_ENDPOINT` values without rebuilding or editing `next.config.ts`.
+- `OPENFRAME_REQUIRE_INVITE_CODE=false` allows open registration while keeping invitation-link registration intact.
+
+For self-hosted MinIO behind a reverse proxy, choose one of these browser-facing layouts:
+
+- Separate storage host: route `https://minio.example.com` to MinIO and set `R2_PRESIGN_ENDPOINT=https://minio.example.com` plus `R2_PUBLIC_BASE_URL=https://minio.example.com/openframe`.
+- Same app host: route the bucket path, for example `https://openframe.example.com/openframe/*`, to MinIO and keep all other paths routed to the OpenFrame app. Set `R2_PRESIGN_ENDPOINT=https://openframe.example.com` and `R2_PUBLIC_BASE_URL=https://openframe.example.com/openframe`.
+
+Do not add an extra path prefix such as `/s3` in front of the bucket unless your proxy rewrites it away before MinIO sees the request. S3 path-style presigned URLs expect the first path segment to be the bucket name, so `/openframe/videos/...` is valid while `/s3/openframe/videos/...` makes MinIO treat `s3` as the bucket.
+
+These integrations remain optional for self-hosted deployments and can be enabled later by setting the related environment variables:
+
+- Stripe billing
+- Bunny direct uploads (hosted) or S3 video uploads via `OPENFRAME_ENABLE_S3_VIDEO_UPLOADS` (self-hosted)
+- SMTP for invitation and notification delivery
+- Telegram notifications
+- External S3-compatible storage such as Cloudflare R2 or another compatible provider instead of bundled MinIO
+- Google and GitHub OAuth
+
+## Development
+
+Install dependencies and run validation with Bun:
+
+```bash
+bun install
+bun run check
+```
+
+Feature flags and self-hosting environment variables are documented in `.env.example` and `.env.docker.example`.
+
+## Contributing
+
+Contributions are welcome.
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, conventions, and PR requirements.
+- Use [SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
+- Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) in all project interactions.

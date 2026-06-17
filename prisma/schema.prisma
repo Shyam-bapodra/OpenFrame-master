@@ -1,0 +1,750 @@
+// Prisma Schema for OpenFrame - Video Feedback Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// AUTH MODELS (NextAuth.js compatible)
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Hashed password for email/password auth
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  onboardingCompletedAt DateTime?
+  trialEndsAt DateTime?
+  billingTrialConsumedAt DateTime?
+  stripeCustomerId String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId String?
+  stripeCurrentPeriodEnd DateTime?
+  stripeCancelAtPeriodEnd Boolean @default(false)
+  stripeCancelAt DateTime?
+  billingAccessEndedAt DateTime?
+  subscriptionStatus BillingSubscriptionStatus @default(FREE)
+
+  // Relations
+  accounts           Account[]
+  sessions           Session[]
+  ownedWorkspaces    Workspace[]
+  workspaceMemberships WorkspaceMember[]
+  projects           Project[]
+  comments           Comment[]
+  uploadedVideoAssets VideoAsset[] @relation("VideoAssetUploadedBy")
+  billedVideoAssets   VideoAsset[] @relation("VideoAssetBilledTo")
+  projectMemberships ProjectMember[]
+  notificationSetting NotificationSetting?
+  watchProgress      WatchProgress[]
+  feedbackEntries    UserFeedback[]
+  requestedApprovalRequests ApprovalRequest[] @relation("ApprovalRequestsRequestedBy")
+  canceledApprovalRequests  ApprovalRequest[] @relation("ApprovalRequestsCanceledBy")
+  approvalDecisions         ApprovalDecision[]
+  sentInvitations           Invitation[] @relation("InvitationsSentBy")
+  
+  @@map("users")
+}
+
+enum BillingSubscriptionStatus {
+  FREE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+}
+
+enum FeedbackEntryType {
+  FEEDBACK
+  REVIEW
+}
+
+enum FeedbackCategory {
+  BUG
+  FEATURE
+  OTHER
+}
+
+enum FeedbackStatus {
+  NEW
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  RESOLVED
+}
+
+enum DownloadEgressSource {
+  ORIGINAL
+  COMPRESSED
+}
+
+enum VideoAssetKind {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum VideoAssetProvider {
+  R2_IMAGE
+  YOUTUBE
+  BUNNY
+  R2_AUDIO
+  R2_VIDEO
+}
+
+model DownloadEgressEvent {
+  id               String               @id @default(cuid())
+  versionId        String
+  videoId          String
+  projectId        String
+  workspaceId      String
+  billedUserId     String
+  downloaderUserId String?
+  source           DownloadEgressSource
+  quality          Int?
+  estimatedBytes   BigInt               @default(0)
+  createdAt        DateTime             @default(now())
+
+  @@index([billedUserId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([versionId, createdAt])
+  @@map("download_egress_events")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// APPLICATION MODELS
+// ============================================
+
+// ---- Workspace ----
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?  @db.Text
+  
+  // Ownership
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  members     WorkspaceMember[]
+  projects    Project[]
+  invitations Invitation[]
+  
+  @@index([ownerId])
+  @@index([slug])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String              @id @default(cuid())
+  role        WorkspaceMemberRole @default(COMMENTATOR)
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime  @default(now())
+  
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+enum WorkspaceMemberRole {
+  ADMIN        // Full access: manage members, delete projects, etc.
+  COMMENTATOR  // Can view all projects and comment only
+}
+
+// ---- Project ----
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  slug        String   @unique // URL-friendly identifier
+  
+  // Visibility
+  visibility  ProjectVisibility @default(PRIVATE)
+  
+  // Ownership
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  // Workspace (required - every project belongs to a workspace)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  videos      Video[]
+  members     ProjectMember[]
+  shareLinks  ShareLink[]
+  commentTags CommentTag[]
+  invitations Invitation[]
+  
+  @@index([ownerId])
+  @@index([slug])
+  @@index([workspaceId])
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+enum ProjectVisibility {
+  PRIVATE    // Only owner can access
+  INVITE     // Owner + specifically invited members
+  PUBLIC     // Anyone with the link can access
+}
+
+model ProjectMember {
+  id        String            @id @default(cuid())
+  role      ProjectMemberRole @default(COMMENTATOR)
+  
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+enum ProjectMemberRole {
+  ADMIN        // Can manage members, settings, delete videos
+  COMMENTATOR  // Can view and comment only
+}
+
+enum InvitationScope {
+  WORKSPACE
+  PROJECT
+}
+
+enum InvitationRole {
+  ADMIN
+  COMMENTATOR
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  CANCELED
+  EXPIRED
+}
+
+model Invitation {
+  id          String           @id @default(cuid())
+  token       String           @unique
+  email       String
+  scope       InvitationScope
+  role        InvitationRole
+  status      InvitationStatus @default(PENDING)
+
+  workspaceId String?
+  workspace   Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  invitedById String
+  invitedBy   User             @relation("InvitationsSentBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  acceptedAt  DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([email, status, expiresAt])
+  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@index([projectId, status, createdAt(sort: Desc)])
+  @@map("invitations")
+}
+
+model Video {
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  
+  // Ordering within project
+  position    Int      @default(0)
+  
+  // Project relation
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  versions    VideoVersion[]
+  assets      VideoAsset[]
+  shareLinks  ShareLink[]
+  
+  @@index([projectId])
+  @@map("videos")
+}
+
+model VideoVersion {
+  id              String   @id @default(cuid())
+  versionNumber   Int      // 1, 2, 3...
+  versionLabel    String?  // Optional label like "Final Cut", "Review Draft"
+  
+  // Video source (future-proof for multiple providers)
+  providerId      String   // 'youtube', 'vimeo', 'direct'
+  videoId         String   // Provider-specific video ID
+  originalUrl     String   // Original URL submitted by user
+  
+  // Cached metadata
+  title           String?
+  thumbnailUrl    String?
+  duration        Int?     // Duration in seconds
+  sizeBytes       BigInt   @default(0) @map("size_bytes") // R2-hosted video file size
+  
+  // Status
+  isActive        Boolean  @default(true) // Currently displayed version
+  
+  // Parent video
+  videoParentId   String
+  video           Video    @relation(fields: [videoParentId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  comments        Comment[]
+  watchProgress   WatchProgress[]
+  approvalRequests ApprovalRequest[]
+  
+  @@unique([videoParentId, versionNumber])
+  @@index([videoParentId])
+  @@index([videoParentId, isActive])
+  @@map("video_versions")
+}
+
+model VideoAsset {
+  id                       String             @id @default(cuid())
+  videoId                  String
+  video                    Video              @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  kind                     VideoAssetKind
+  provider                 VideoAssetProvider
+  displayName              String
+  sourceUrl                String
+  providerVideoId          String?
+  thumbnailUrl             String?
+  uploadedByUserId         String?
+  uploadedByUser           User?              @relation("VideoAssetUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  uploadedByGuestIdentityId String?
+  uploadedByGuestName      String?
+  billedUserId             String
+  billedUser               User               @relation("VideoAssetBilledTo", fields: [billedUserId], references: [id], onDelete: Cascade)
+  sizeBytes                BigInt             @default(0) @map("size_bytes")
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@index([videoId])
+  @@index([billedUserId])
+  @@index([provider])
+  @@index([providerVideoId])
+  @@index([videoId, createdAt(sort: Desc)])
+  @@map("video_assets")
+}
+
+model Comment {
+  id            String      @id @default(cuid())
+  
+  // Comment content
+  content       String?     @db.Text  // Text content (null if voice-only)
+  
+  // Timestamp in video (in seconds, with decimal for precision)
+  timestamp     Float       // e.g., 65.5 = 1:05.5
+  timestampEnd  Float?      // Optional end timestamp for range comments
+  
+  // Voice recording (optional)
+  voiceUrl      String?     // URL to voice recording file
+  voiceDuration Float?      // Duration of voice recording in seconds
+  
+  // Image attachment (optional)
+  imageUrl      String?     // URL to uploaded image file
+  
+  // Annotation drawing data (JSON string of strokes)
+  annotationData String?    @db.Text
+  
+  // Threading
+  parentId      String?
+  parent        Comment?    @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       Comment[]   @relation("CommentReplies")
+  
+  // Status
+  isResolved    Boolean     @default(false)
+  resolvedAt    DateTime?
+  
+  // Author (optional for guest comments)
+  authorId      String?
+  author        User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  
+  // Guest author info (when authorId is null)
+  guestName     String?
+  guestEmail    String?
+  guestIdentityId String?
+  
+  // Video version relation
+  versionId     String
+  version       VideoVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  
+  // Comment tag (colored category)
+  tagId         String?
+  tag           CommentTag? @relation(fields: [tagId], references: [id], onDelete: SetNull)
+  
+  // Timestamps
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([versionId])
+  @@index([parentId])
+  @@index([authorId])
+  @@index([guestIdentityId])
+  @@index([timestamp])
+  @@index([tagId])
+  @@unique([imageUrl])
+  @@unique([voiceUrl])
+  @@index([versionId, isResolved, timestamp])
+  @@index([versionId, parentId, createdAt])
+  @@map("comments")
+}
+
+model CommentTag {
+  id        String   @id @default(cuid())
+  name      String   // e.g., "Feedback", "Technical", "Urgent"
+  color     String   // Hex color, e.g., "#3B82F6"
+  
+  // Project relation (tags are per-project)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Position for ordering in UI
+  position  Int      @default(0)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  comments  Comment[]
+  
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("comment_tags")
+}
+
+model ShareLink {
+  id          String          @id @default(cuid())
+  token       String          @unique // Random token for URL
+  
+  // What is being shared
+  projectId   String
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  videoId     String?
+  video       Video?          @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  
+  // Permissions
+  permission  SharePermission @default(VIEW)
+  
+  // Optional restrictions
+  expiresAt   DateTime?       // Link expiration
+  passwordHash String?        // Bcrypt hash of optional password protection
+  
+  // Settings
+  allowGuests Boolean         @default(true) // Allow comments without account
+  allowDownloads Boolean      @default(false) // Allow downloading video via share link
+  
+  // Timestamps
+  createdAt   DateTime        @default(now())
+  
+  @@index([projectId])
+  @@index([videoId])
+  @@index([projectId, videoId])
+  @@unique([projectId, videoId, permission])
+  @@index([token])
+  @@index([token, expiresAt])
+  @@map("share_links")
+}
+
+model UserFeedback {
+  id             String            @id @default(cuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           FeedbackEntryType
+  category       FeedbackCategory?
+  title          String
+  message        String            @db.Text
+  screenshotUrl  String?
+  screenshots    UserFeedbackScreenshot[]
+  rating         Int?
+  status         FeedbackStatus    @default(NEW)
+  allowShowcase  Boolean           @default(false)
+  showOnLanding  Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([showOnLanding, createdAt(sort: Desc)])
+  @@map("user_feedback")
+}
+
+model UserFeedbackScreenshot {
+  id           String       @id @default(cuid())
+  feedbackId   String
+  feedback     UserFeedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  url          String
+  createdAt    DateTime     @default(now())
+
+  @@index([feedbackId, createdAt(sort: Desc)])
+  @@map("user_feedback_screenshots")
+}
+
+enum SharePermission {
+  VIEW       // Can only view
+  COMMENT    // Can view and comment
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+}
+
+enum ApprovalDecisionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ApprovalRequest {
+  id           String                @id @default(cuid())
+  versionId    String
+  version      VideoVersion          @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  requestedById String
+  requestedBy  User                  @relation("ApprovalRequestsRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  message      String?               @db.Text
+  status       ApprovalRequestStatus @default(PENDING)
+  resolvedAt   DateTime?
+  canceledAt   DateTime?
+  canceledById String?
+  canceledBy   User?                 @relation("ApprovalRequestsCanceledBy", fields: [canceledById], references: [id], onDelete: SetNull)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  decisions ApprovalDecision[]
+
+  @@index([versionId, status, createdAt(sort: Desc)])
+  @@index([requestedById, createdAt(sort: Desc)])
+  @@map("approval_requests")
+}
+
+model ApprovalDecision {
+  id         String                 @id @default(cuid())
+  requestId  String
+  request    ApprovalRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approverId String
+  approver   User                   @relation(fields: [approverId], references: [id], onDelete: Cascade)
+  status     ApprovalDecisionStatus @default(PENDING)
+  note       String?                @db.Text
+  respondedAt DateTime?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@unique([requestId, approverId])
+  @@index([approverId, status])
+  @@map("approval_decisions")
+}
+
+// ============================================
+// NOTIFICATION SETTINGS
+// ============================================
+
+model NotificationSetting {
+  id        String   @id @default(cuid())
+
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Telegram webhook
+  telegramChatId    String?   // Chat ID to send messages to (bot token is in TELEGRAM_BOT_TOKEN env var)
+  telegramEnabled   Boolean   @default(false)
+
+  // Email notifications (uses account email by default)
+  emailEnabled      Boolean   @default(false)
+
+  // Event subscriptions
+  onNewVideo        Boolean   @default(true)
+  onNewVersion      Boolean   @default(true)
+  onNewComment      Boolean   @default(true)
+  onNewReply        Boolean   @default(true)
+  onApprovalEvents  Boolean   @default(true)
+
+  // User timezone for notification timestamps (IANA timezone identifier)
+  timezone          String    @default("UTC")
+
+  // Timestamps
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("notification_settings")
+}
+
+// ============================================
+// WATCH PROGRESS
+// ============================================
+
+model WatchProgress {
+  id         String   @id @default(cuid())
+  
+  // User relation (optional for guest progress, though typically requires auth)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Video version relation
+  versionId  String
+  version    VideoVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  
+  // Progress data
+  progress   Float    // Current playback position in seconds
+  duration   Float    // Total video duration at time of save
+  percentage Float    // Progress as percentage (0-100)
+  
+  // Timestamps
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  
+  // One progress record per user per version
+  @@unique([userId, versionId])
+  @@index([userId])
+  @@index([versionId])
+  @@map("watch_progress")
+}
+
+// Tracks in-flight R2 upload slots so concurrent uploads are counted against quota
+// before the VideoAsset record is committed. Rows expire after a short TTL.
+model UploadReservation {
+  id           String   @id @default(cuid())
+  billedUserId String
+  sizeBytes    BigInt
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([billedUserId, expiresAt])
+  @@map("upload_reservations")
+}
+
+enum UploadSessionStatus {
+  INITIATED
+  FINALIZED
+  CANCELLED
+  EXPIRED
+}
+
+model VideoUploadSession {
+  id                 String              @id @default(cuid())
+  uploadJti          String              @unique @map("upload_jti")
+  userId             String
+  projectId          String
+  billedUserId       String              @map("billed_user_id")
+  objectKey          String              @unique @map("object_key")
+  thumbnailObjectKey String              @map("thumbnail_object_key")
+  declaredSizeBytes  BigInt              @map("declared_size_bytes")
+  contentType        String              @map("content_type")
+  reservationId      String?             @map("reservation_id")
+  expiresAt          DateTime            @map("expires_at")
+  status             UploadSessionStatus @default(INITIATED)
+  consumedAt         DateTime?           @map("consumed_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+
+  @@index([projectId, status])
+  @@index([userId, status])
+  @@index([billedUserId])
+  @@index([expiresAt])
+  @@map("video_upload_sessions")
+}
+
+// Rate limiting table (created as UNLOGGED via raw SQL migration)
+// Defined here so `prisma db push` doesn't drop it
+model RateLimit {
+  id          Int      @id @default(autoincrement())
+  key         String   @db.VarChar(255)
+  action      String   @db.VarChar(50)
+  count       Int      @default(1)
+  windowStart DateTime @default(now()) @map("window_start")
+
+  @@unique([key, action])
+  @@index([key, action])
+  @@index([windowStart])
+  @@map("rate_limits")
+}
