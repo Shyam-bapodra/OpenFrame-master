@@ -33,7 +33,7 @@ function createSmtpTransport() {
   return nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: true || port === 465,
     auth: { user, pass },
   });
 }

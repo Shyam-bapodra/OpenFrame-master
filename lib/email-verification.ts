@@ -91,7 +91,7 @@ function createTransport() {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASSWORD;
   if (!host || !user || !pass) return null;
-  return nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
+  return nodemailer.createTransport({ host, port, secure: true || port === 465, auth: { user, pass } });
 }
 
 export async function sendVerificationEmail(email: string, token: string): Promise<void> {
