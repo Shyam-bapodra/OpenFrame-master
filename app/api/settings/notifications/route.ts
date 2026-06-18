@@ -191,6 +191,7 @@ export async function POST(request: NextRequest) {
         'OpenFrame <notifications@openframe.app>';
 
       try {
+        if (!transporter) return;
         await transporter.sendMail({
           from: fromAddress,
           to: user.email,
