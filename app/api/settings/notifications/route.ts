@@ -183,12 +183,7 @@ export async function POST(request: NextRequest) {
         return apiErrors.internalError('Email service not configured (SMTP settings missing)');
       }
 
-      const transporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: true || smtpPort === 465,
-        auth: { user: smtpUser, pass: smtpPass },
-      });
+      const transporter =  createBrevoTransport();
 
       const fromAddress =
         process.env.SMTP_FROM ||
