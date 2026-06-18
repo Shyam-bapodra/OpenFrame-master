@@ -56,19 +56,12 @@ async function sendTelegram(
   }
 }
 
-/**
- * Create a nodemailer SMTP transporter from environment variables.
- * Required env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
- */
+
 function createSmtpTransport() {
   return createBrevoTransport();
 }
 
-/**
- * Send an email notification via SMTP.
- * Requires SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD environment variables.
- * Falls back to logging if not configured.
- */
+
 async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   const transporter = createSmtpTransport();
   const fromAddress =

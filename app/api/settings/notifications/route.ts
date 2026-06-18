@@ -174,15 +174,6 @@ export async function POST(request: NextRequest) {
         return apiErrors.badRequest('No email address on your account');
       }
 
-      const smtpHost = process.env.SMTP_HOST;
-      const smtpPort = Number(process.env.SMTP_PORT || '587');
-      const smtpUser = process.env.SMTP_USER;
-      const smtpPass = process.env.SMTP_PASSWORD;
-
-      if (!smtpHost || !smtpUser || !smtpPass) {
-        return apiErrors.internalError('Email service not configured (SMTP settings missing)');
-      }
-
       const transporter =  createBrevoTransport();
 
       const fromAddress =
