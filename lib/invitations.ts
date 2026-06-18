@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import nodemailer from 'nodemailer';
+import { createBrevoTransport } from '@/lib/brevo-email';
 import {
   InvitationRole,
   InvitationScope,
@@ -23,19 +23,7 @@ const INVITATION_TTL_DAYS = 7;
 const MAX_INVITATION_RETRIES = 3;
 
 function createSmtpTransport() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || '587');
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-
-  if (!host || !user || !pass) return null;
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: true || port === 465,
-    auth: { user, pass },
-  });
+  return createBrevoTransport();
 }
 
 function roleLabel(role: InvitationRole): string {

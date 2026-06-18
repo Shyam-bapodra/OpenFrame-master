@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import nodemailer from 'nodemailer';
+import { createBrevoTransport } from '@/lib/brevo-email';
 import {
   EMAIL_COLORS,
   brandedEmailTemplate,
@@ -61,19 +61,7 @@ async function sendTelegram(
  * Required env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
  */
 function createSmtpTransport() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || '587');
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-
-  if (!host || !user || !pass) return null;
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure: true || port === 465,
-    auth: { user, pass },
-  });
+  return createBrevoTransport();
 }
 
 /**

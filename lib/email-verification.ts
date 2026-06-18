@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { db } from '@/lib/db';
-import nodemailer from 'nodemailer';
+import { createBrevoTransport } from '@/lib/brevo-email';
 import {
   brandedEmailTemplate,
   emailButton,
@@ -25,7 +25,10 @@ function hashToken(token: string): string {
  * without a mail server continue to function.
  */
 export function isEmailVerificationEnabled(): boolean {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+  return !!(
+    process.env.BREVO_API_KEY ||
+    (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD)
+  );
 }
 
 /**
@@ -86,13 +89,7 @@ export async function consumeVerificationToken(token: string): Promise<string | 
 // ---------------------------------------------------------------------------
 
 function createTransport() {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || '587');
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASSWORD;
-  if (!host || !user || !pass) return null;
-  return nodemailer.createTransport({ host, port, secure: true || port === 465, auth: { user, pass } });
-}
+  return createBrevoTransport();}
 
 export async function sendVerificationEmail(email: string, token: string): Promise<void> {
   const transporter = createTransport();
